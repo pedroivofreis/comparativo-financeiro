@@ -126,6 +126,10 @@ def parse_relatorio(file) -> pd.DataFrame:
     col_data = detectar_coluna(df, ["data_do_plantão", "data_do_plantao", "data_plantao", "data", "date"])
     df["data"] = pd.to_datetime(df[col_data], dayfirst=True, errors="coerce").dt.date if col_data else None
 
+    # Setor
+    col_setor = detectar_coluna(df, ["setor", "unidade", "departamento", "especialidade"])
+    df["setor"] = df[col_setor].astype(str).str.strip() if col_setor else ""
+
     # Valor líquido (o que o médico recebe — equivalente ao campo Valor do financeiro)
     col_vliq = detectar_coluna(df, ["valor_líquido", "valor_liquido", "vliquido", "valor_liq", "valor"])
     if col_vliq:
@@ -172,7 +176,8 @@ def comparar(df_fin: pd.DataFrame, df_rel: pd.DataFrame) -> pd.DataFrame:
     rel_agg = (
         df_rel_f.groupby("chave")
         .agg(medico=("medico", "first"), crm=("crm", "first"),
-             data=("data", "first"), valor_humana=("valor_humana", "sum"))
+             data=("data", "first"), valor_humana=("valor_humana", "sum"),
+             setor=("setor", "first"))
         .reset_index()
     )
 
@@ -185,6 +190,7 @@ def comparar(df_fin: pd.DataFrame, df_rel: pd.DataFrame) -> pd.DataFrame:
         inconsistencias.append({
             "tipo": "❌ Ausente no Humana",
             "medico": row["medico"], "crm": row["crm"], "data": str(row["data"]),
+            "setor": "",
             "valor_pega_plantao": row["valor_pega_plantao"], "valor_humana": None,
             "diferenca_humana": None,
             "detalhe": "Plantão no Pega Plantão, ausente no Humana",
@@ -197,6 +203,7 @@ def comparar(df_fin: pd.DataFrame, df_rel: pd.DataFrame) -> pd.DataFrame:
             "tipo": "⚠️ Ausente no Pega Plantão",
             "medico": row["medico"], "crm": row["crm"],
             "data": str(row["data"]),
+            "setor": row.get("setor", ""),
             "valor_pega_plantao": None, "valor_humana": row["valor_humana"],
             "diferenca_humana": None,
             "detalhe": "Plantão no Humana, ausente no Pega Plantão",
@@ -218,6 +225,7 @@ def comparar(df_fin: pd.DataFrame, df_rel: pd.DataFrame) -> pd.DataFrame:
                 inconsistencias.append({
                     "tipo": "💰 Divergência de Valor",
                     "medico": r_fin["medico"], "crm": r_fin["crm"], "data": str(r_fin["data"]),
+                    "setor": r_rel.get("setor", ""),
                     "valor_pega_plantao": val_fin, "valor_humana": val_rel,
                     "diferenca_humana": diff,
                     "detalhe": detalhe,
@@ -332,7 +340,7 @@ with tabs[0]:
             )
             df_show = df_inc[df_inc["tipo"].isin(filtro)]
             st.dataframe(
-                df_show[["tipo", "medico", "crm", "data",
+                df_show[["tipo", "medico", "crm", "data", "setor",
                           "valor_pega_plantao", "valor_humana", "diferenca_humana", "detalhe"]],
                 use_container_width=True, hide_index=True,
             )
