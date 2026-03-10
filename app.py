@@ -46,7 +46,7 @@ def parse_financeiro(file) -> pd.DataFrame:
         cell0 = str(row[0]).strip() if pd.notna(row[0]) else ""
 
         # Detecta linha de médico: "Nome Completo  -  123456/SP"
-        if re.search(r".+\s+-\s+\d+/[A-Z]{2}", cell0):
+        if re.search(r".+\s+-\s+\d+\s*/\s*[A-Z]{2}", cell0):
             partes = re.split(r"\s+-\s+", cell0, maxsplit=1)
             medico_atual = partes[0].strip()
             nums = re.findall(r"\d+", partes[1]) if len(partes) > 1 else []
