@@ -110,7 +110,7 @@ def parse_relatorio(file) -> pd.DataFrame:
 
     # CRM
     col_crm = detectar_coluna(df, [
-        "registro_profissinal", "registro_profissional", "crm", "registro", "matricula"
+        "crm", "registro_profissinal", "registro_profissional", "registro", "matricula"
     ])
     df["crm"] = (
         df[col_crm].astype(str).str.strip().apply(
@@ -119,22 +119,27 @@ def parse_relatorio(file) -> pd.DataFrame:
     )
 
     # Nome
-    col_nome = detectar_coluna(df, ["nome_completo", "nome", "medico", "profissional", "name"])
+    col_nome = detectar_coluna(df, ["profissional", "nome_completo", "nome", "medico", "name"])
     df["medico"] = df[col_nome].astype(str).str.strip() if col_nome else "N/A"
 
     # Data
-    col_data = detectar_coluna(df, ["data_do_plantao", "data_plantao", "data", "date"])
-    df["data"] = pd.to_datetime(df[col_data], errors="coerce").dt.date if col_data else None
+    col_data = detectar_coluna(df, ["data_do_plantão", "data_do_plantao", "data_plantao", "data", "date"])
+    df["data"] = pd.to_datetime(df[col_data], dayfirst=True, errors="coerce").dt.date if col_data else None
 
     # Valor líquido (o que o médico recebe — equivalente ao campo Valor do financeiro)
-    col_vliq = detectar_coluna(df, ["valor_liquido", "valor_líquido", "vliquido", "valor_liq", "valor"])
+    col_vliq = detectar_coluna(df, ["valor_líquido", "valor_liquido", "vliquido", "valor_liq", "valor"])
     if col_vliq:
-        df["valor_humana"] = (
-            df[col_vliq].astype(str)
-            .str.replace(".", "", regex=False)
-            .str.replace(",", ".", regex=False)
-            .pipe(pd.to_numeric, errors="coerce")
-        )
+        raw = df[col_vliq]
+        # Se já for numérico (xlsx real), usa direto; se for texto BR (1.300,00), converte
+        if pd.api.types.is_numeric_dtype(raw):
+            df["valor_humana"] = pd.to_numeric(raw, errors="coerce")
+        else:
+            df["valor_humana"] = (
+                raw.astype(str)
+                .str.replace(".", "", regex=False)
+                .str.replace(",", ".", regex=False)
+                .pipe(pd.to_numeric, errors="coerce")
+            )
     else:
         df["valor_humana"] = None
 
