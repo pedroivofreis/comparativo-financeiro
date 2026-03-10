@@ -178,24 +178,35 @@ def comparar(df_fin: pd.DataFrame, df_rel: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
     )
 
+    crms_fin = set(fin_agg["crm"].astype(str))
     fin_ch = set(fin_agg["chave"])
     rel_ch = set(rel_agg["chave"])
 
     # 1. No financeiro mas falta no relatório
     for chave in fin_ch - rel_ch:
         row = fin_agg[fin_agg["chave"] == chave].iloc[0]
+        crm_no_rel = row["crm"] in set(rel_agg["crm"].astype(str))
+        if crm_no_rel:
+            detalhe = f"CRM {row['crm']} existe no Humana, mas sem registro nesta data"
+        else:
+            detalhe = f"CRM {row['crm']} não encontrado no Humana"
         inconsistencias.append({
             "tipo": "❌ Ausente no Humana",
             "medico": row["medico"], "crm": row["crm"], "data": str(row["data"]),
             "setor": "",
             "valor_pega_plantao": row["valor_pega_plantao"], "valor_humana": None,
             "diferenca_humana": None,
-            "detalhe": "Plantão no Pega Plantão, ausente no Humana",
+            "detalhe": detalhe,
         })
 
-    # 2. No relatório mas falta no financeiro (apenas médicos do financeiro)
+    # 2. No relatório mas falta no financeiro
     for chave in rel_ch - fin_ch:
         row = rel_agg[rel_agg["chave"] == chave].iloc[0]
+        crm_no_fin = row["crm"] in crms_fin
+        if crm_no_fin:
+            detalhe = f"CRM {row['crm']} existe no Pega Plantão, mas sem registro nesta data"
+        else:
+            detalhe = f"CRM {row['crm']} não encontrado no Pega Plantão"
         inconsistencias.append({
             "tipo": "⚠️ Ausente no Pega Plantão",
             "medico": row["medico"], "crm": row["crm"],
@@ -203,7 +214,7 @@ def comparar(df_fin: pd.DataFrame, df_rel: pd.DataFrame) -> pd.DataFrame:
             "setor": row.get("setor", ""),
             "valor_pega_plantao": None, "valor_humana": row["valor_humana"],
             "diferenca_humana": None,
-            "detalhe": "Plantão no Humana, ausente no Pega Plantão",
+            "detalhe": detalhe,
         })
 
     # 3. Nos dois — compara valor agregado
@@ -215,10 +226,11 @@ def comparar(df_fin: pd.DataFrame, df_rel: pd.DataFrame) -> pd.DataFrame:
         if pd.notna(val_fin) and pd.notna(val_rel):
             diff = round(float(val_rel) - float(val_fin), 2)  # positivo = Humana paga mais
             if abs(diff) > 0.01:
-                if diff > 0:
-                    detalhe = f"Humana paga R$ {abs(diff):,.2f} a MAIS que o Pega Plantão"
-                else:
-                    detalhe = f"Humana paga R$ {abs(diff):,.2f} a MENOS que o Pega Plantão"
+                sinal = "MAIS" if diff > 0 else "MENOS"
+                detalhe = (
+                    f"Humana: R$ {float(val_rel):,.2f} | Pega Plantão: R$ {float(val_fin):,.2f} "
+                    f"— Humana paga R$ {abs(diff):,.2f} a {sinal}"
+                )
                 inconsistencias.append({
                     "tipo": "💰 Divergência de Valor",
                     "medico": r_fin["medico"], "crm": r_fin["crm"], "data": str(r_fin["data"]),
