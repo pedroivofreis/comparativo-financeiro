@@ -162,10 +162,6 @@ def comparar(df_fin: pd.DataFrame, df_rel: pd.DataFrame) -> pd.DataFrame:
     df_fin["chave"] = df_fin["crm"].astype(str) + "_" + df_fin["data"].astype(str)
     df_rel["chave"] = df_rel["crm"].astype(str) + "_" + df_rel["data"].astype(str)
 
-    # Filtra o relatório apenas pelos CRMs presentes no financeiro
-    crms_fin = set(df_fin["crm"].astype(str))
-    df_rel_f = df_rel[df_rel["crm"].astype(str).isin(crms_fin)].copy()
-
     # Agrega por chave: soma valores e mantém medico/crm/data do primeiro registro
     fin_agg = (
         df_fin.groupby("chave")
@@ -173,8 +169,9 @@ def comparar(df_fin: pd.DataFrame, df_rel: pd.DataFrame) -> pd.DataFrame:
              data=("data", "first"), valor_pega_plantao=("valor_pega_plantao", "sum"))
         .reset_index()
     )
+    # Usa TODO o relatório (sem filtrar por CRM) para detectar ausências no Pega Plantão
     rel_agg = (
-        df_rel_f.groupby("chave")
+        df_rel.groupby("chave")
         .agg(medico=("medico", "first"), crm=("crm", "first"),
              data=("data", "first"), valor_humana=("valor_humana", "sum"),
              setor=("setor", "first"))
@@ -385,13 +382,18 @@ with tabs[1]:
         st.markdown(f"**{len(historico)} consulta(s) salva(s)**")
 
         for i, reg in enumerate(reversed(historico), 1):
+            idx_real = len(historico) - i  # índice real no array original
             with st.expander(
                 f"🕒 {reg['data_consulta']} — {reg['total_inconsistencias']} inconsistência(s)"
             ):
-                c1, c2, c3 = st.columns(3)
+                c1, c2, c3, c4 = st.columns([3, 3, 1, 1])
                 c1.markdown(f"**Pega Plantão:** `{reg['arquivo_financeiro']}`")
                 c2.markdown(f"**Humana:** `{reg['arquivo_relatorio']}`")
                 c3.metric("Inconsistências", reg["total_inconsistencias"])
+                if c4.button("🗑️ Apagar", key=f"del_hist_{i}"):
+                    historico.pop(idx_real)
+                    salvar_historico(historico)
+                    st.rerun()
 
                 if reg.get("resumo_tipos"):
                     st.write("**Por tipo:**", reg["resumo_tipos"])
