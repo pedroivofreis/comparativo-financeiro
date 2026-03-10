@@ -162,12 +162,26 @@ def comparar(df_fin: pd.DataFrame, df_rel: pd.DataFrame) -> pd.DataFrame:
     crms_fin = set(df_fin["crm"].astype(str))
     df_rel_f = df_rel[df_rel["crm"].astype(str).isin(crms_fin)].copy()
 
-    fin_ch = set(df_fin["chave"])
-    rel_ch = set(df_rel_f["chave"])
+    # Agrega por chave: soma valores e mantém medico/crm/data do primeiro registro
+    fin_agg = (
+        df_fin.groupby("chave")
+        .agg(medico=("medico", "first"), crm=("crm", "first"),
+             data=("data", "first"), valor_pega_plantao=("valor_pega_plantao", "sum"))
+        .reset_index()
+    )
+    rel_agg = (
+        df_rel_f.groupby("chave")
+        .agg(medico=("medico", "first"), crm=("crm", "first"),
+             data=("data", "first"), valor_humana=("valor_humana", "sum"))
+        .reset_index()
+    )
+
+    fin_ch = set(fin_agg["chave"])
+    rel_ch = set(rel_agg["chave"])
 
     # 1. No financeiro mas falta no relatório
     for chave in fin_ch - rel_ch:
-        row = df_fin[df_fin["chave"] == chave].iloc[0]
+        row = fin_agg[fin_agg["chave"] == chave].iloc[0]
         inconsistencias.append({
             "tipo": "❌ Ausente no Humana",
             "medico": row["medico"], "crm": row["crm"], "data": str(row["data"]),
@@ -178,22 +192,22 @@ def comparar(df_fin: pd.DataFrame, df_rel: pd.DataFrame) -> pd.DataFrame:
 
     # 2. No relatório mas falta no financeiro (apenas médicos do financeiro)
     for chave in rel_ch - fin_ch:
-        row = df_rel_f[df_rel_f["chave"] == chave].iloc[0]
+        row = rel_agg[rel_agg["chave"] == chave].iloc[0]
         inconsistencias.append({
             "tipo": "⚠️ Ausente no Pega Plantão",
-            "medico": row.get("medico", "N/A"), "crm": row.get("crm", "N/A"),
-            "data": str(row.get("data", "")),
-            "valor_pega_plantao": None, "valor_humana": row.get("valor_humana"),
+            "medico": row["medico"], "crm": row["crm"],
+            "data": str(row["data"]),
+            "valor_pega_plantao": None, "valor_humana": row["valor_humana"],
             "diferenca_humana": None,
             "detalhe": "Plantão no Humana, ausente no Pega Plantão",
         })
 
-    # 3. Nos dois — compara valor
+    # 3. Nos dois — compara valor agregado
     for chave in fin_ch & rel_ch:
-        r_fin = df_fin[df_fin["chave"] == chave].iloc[0]
-        r_rel = df_rel_f[df_rel_f["chave"] == chave].iloc[0]
+        r_fin = fin_agg[fin_agg["chave"] == chave].iloc[0]
+        r_rel = rel_agg[rel_agg["chave"] == chave].iloc[0]
         val_fin = r_fin["valor_pega_plantao"]
-        val_rel = r_rel.get("valor_humana")
+        val_rel = r_rel["valor_humana"]
         if pd.notna(val_fin) and pd.notna(val_rel):
             diff = round(float(val_rel) - float(val_fin), 2)  # positivo = Humana paga mais
             if abs(diff) > 0.01:
