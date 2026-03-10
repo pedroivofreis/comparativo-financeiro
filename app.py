@@ -1,5 +1,5 @@
 """
-Comparador Financeiro - Sistema vs Sistema Antigo
+Comparador Financeiro - Sistema vs Pega Plantão
 Rode com: streamlit run app.py
 Dependências: pip install streamlit pandas openpyxl
 """
@@ -33,7 +33,7 @@ def salvar_historico(registros):
 # ══════════════════════════════════════════════════════════════════════════════
 def parse_financeiro(file) -> pd.DataFrame:
     """
-    Lê o arquivo do sistema antigo.
+    Lê o arquivo do Pega Plantão.
     Estrutura fixa: blocos por médico com cabeçalho "Nome  -  123456/SP"
     seguidos de linhas de plantão: Data | Local | Tipo | Duração | Valor
     """
@@ -65,7 +65,7 @@ def parse_financeiro(file) -> pd.DataFrame:
                     "local": str(row[1]).strip() if pd.notna(row[1]) else "",
                     "tipo": str(row[2]).strip() if pd.notna(row[2]) else "",
                     "duracao": str(row[3]).strip() if pd.notna(row[3]) else "",
-                    "valor_financeiro": float(valor),
+                    "valor_pega_plantao": float(valor),
                 })
         except Exception:
             pass
@@ -88,7 +88,7 @@ def detectar_coluna(df, candidatos):
 
 def parse_relatorio(file) -> pd.DataFrame:
     """
-    Lê o arquivo do novo sistema.
+    Lê o arquivo do Humana.
     Suporta CSV com ; ou , e xlsx tabular.
     Detecta colunas automaticamente pelo conteúdo.
     """
@@ -129,14 +129,14 @@ def parse_relatorio(file) -> pd.DataFrame:
     # Valor líquido (o que o médico recebe — equivalente ao campo Valor do financeiro)
     col_vliq = detectar_coluna(df, ["valor_liquido", "valor_líquido", "vliquido", "valor_liq", "valor"])
     if col_vliq:
-        df["valor_relatorio"] = (
+        df["valor_humana"] = (
             df[col_vliq].astype(str)
             .str.replace(".", "", regex=False)
             .str.replace(",", ".", regex=False)
             .pipe(pd.to_numeric, errors="coerce")
         )
     else:
-        df["valor_relatorio"] = None
+        df["valor_humana"] = None
 
     return df
 
@@ -164,40 +164,44 @@ def comparar(df_fin: pd.DataFrame, df_rel: pd.DataFrame) -> pd.DataFrame:
     for chave in fin_ch - rel_ch:
         row = df_fin[df_fin["chave"] == chave].iloc[0]
         inconsistencias.append({
-            "tipo": "❌ Ausente no Novo Sistema",
+            "tipo": "❌ Ausente no Humana",
             "medico": row["medico"], "crm": row["crm"], "data": str(row["data"]),
-            "valor_financeiro": row["valor_financeiro"], "valor_relatorio": None,
-            "diferenca": None,
-            "detalhe": "Plantão no sistema antigo, ausente no novo sistema",
+            "valor_pega_plantao": row["valor_pega_plantao"], "valor_humana": None,
+            "diferenca_humana": None,
+            "detalhe": "Plantão no Pega Plantão, ausente no Humana",
         })
 
     # 2. No relatório mas falta no financeiro (apenas médicos do financeiro)
     for chave in rel_ch - fin_ch:
         row = df_rel_f[df_rel_f["chave"] == chave].iloc[0]
         inconsistencias.append({
-            "tipo": "⚠️ Ausente no Sistema Antigo",
+            "tipo": "⚠️ Ausente no Pega Plantão",
             "medico": row.get("medico", "N/A"), "crm": row.get("crm", "N/A"),
             "data": str(row.get("data", "")),
-            "valor_financeiro": None, "valor_relatorio": row.get("valor_relatorio"),
-            "diferenca": None,
-            "detalhe": "Plantão no novo sistema, ausente no sistema antigo",
+            "valor_pega_plantao": None, "valor_humana": row.get("valor_humana"),
+            "diferenca_humana": None,
+            "detalhe": "Plantão no Humana, ausente no Pega Plantão",
         })
 
     # 3. Nos dois — compara valor
     for chave in fin_ch & rel_ch:
         r_fin = df_fin[df_fin["chave"] == chave].iloc[0]
         r_rel = df_rel_f[df_rel_f["chave"] == chave].iloc[0]
-        val_fin = r_fin["valor_financeiro"]
-        val_rel = r_rel.get("valor_relatorio")
+        val_fin = r_fin["valor_pega_plantao"]
+        val_rel = r_rel.get("valor_humana")
         if pd.notna(val_fin) and pd.notna(val_rel):
-            diff = round(float(val_fin) - float(val_rel), 2)
+            diff = round(float(val_rel) - float(val_fin), 2)  # positivo = Humana paga mais
             if abs(diff) > 0.01:
+                if diff > 0:
+                    detalhe = f"Humana paga R$ {abs(diff):,.2f} a MAIS que o Pega Plantão"
+                else:
+                    detalhe = f"Humana paga R$ {abs(diff):,.2f} a MENOS que o Pega Plantão"
                 inconsistencias.append({
                     "tipo": "💰 Divergência de Valor",
                     "medico": r_fin["medico"], "crm": r_fin["crm"], "data": str(r_fin["data"]),
-                    "valor_financeiro": val_fin, "valor_relatorio": val_rel,
-                    "diferenca": diff,
-                    "detalhe": f"Diferença de R$ {diff:,.2f}",
+                    "valor_pega_plantao": val_fin, "valor_humana": val_rel,
+                    "diferenca_humana": diff,
+                    "detalhe": detalhe,
                 })
 
     return pd.DataFrame(inconsistencias) if inconsistencias else pd.DataFrame()
@@ -217,24 +221,24 @@ tabs = st.tabs(["🔍 Comparação", "📋 Histórico"])
 
 # ─── ABA 1: COMPARAÇÃO ────────────────────────────────────────────────────────
 with tabs[0]:
-    st.title("🔍 Comparador Financeiro")
+    st.title("🔍 Comparador Pega Plantão × Humana")
     st.markdown("Faça upload dos dois arquivos nos campos corretos e clique em **Comparar**.")
 
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("📂 Sistema Antigo")
-        st.caption("Arquivo com plantões agrupados por médico (ex: exportação do sistema financeiro)")
+        st.subheader("📂 Pega Plantão")
+        st.caption("Sistema antigo — plantões exportados agrupados por médico")
         file_fin = st.file_uploader(
-            "Selecione o arquivo do Sistema Antigo",
+            "Selecione o arquivo do Pega Plantão",
             type=["xlsx", "xls"],
             key="fin",
             help="Qualquer nome de arquivo — o que importa é o conteúdo"
         )
     with col2:
-        st.subheader("📂 Novo Sistema")
-        st.caption("Relatório tabular com uma linha por plantão (ex: relatório de lucro)")
+        st.subheader("📂 Humana")
+        st.caption("Novo sistema — relatório de lucro com uma linha por plantão")
         file_rel = st.file_uploader(
-            "Selecione o arquivo do Novo Sistema",
+            "Selecione o arquivo do Humana",
             type=["xlsx", "xls", "csv"],
             key="rel",
             help="Qualquer nome de arquivo — o que importa é o conteúdo"
@@ -271,22 +275,22 @@ with tabs[0]:
         st.divider()
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Médicos comparados", df_fin["medico"].nunique())
-        c2.metric("Plantões — Sistema Antigo", len(df_fin))
-        c3.metric("Plantões — Novo Sistema (grupo)", len(df_rel_filtrado))
-        c4.metric("Plantões — Novo Sistema (total)", len(df_rel))
+        c2.metric("Plantões — Pega Plantão", len(df_fin))
+        c3.metric("Plantões — Humana (mesmo grupo)", len(df_rel_filtrado))
+        c4.metric("Plantões — Humana (total)", len(df_rel))
 
         with st.expander("👥 Ver médicos comparados"):
             med_fin = df_fin[["medico", "crm"]].drop_duplicates().sort_values("medico")
             med_rel = (
                 df_rel_filtrado[["medico", "crm"]].drop_duplicates()
-                .rename(columns={"medico": "nome_no_novo_sistema"})
+                .rename(columns={"medico": "nome_no_humana"})
             )
             merged = med_fin.merge(med_rel, on="crm", how="left")
-            merged["Encontrado"] = merged["nome_no_novo_sistema"].notna().map(
+            merged["Encontrado no Humana"] = merged["nome_no_humana"].notna().map(
                 {True: "✅ Sim", False: "❌ Não"}
             )
             st.dataframe(
-                merged[["medico", "crm", "nome_no_novo_sistema", "Encontrado"]],
+                merged[["medico", "crm", "nome_no_humana", "Encontrado no Humana"]],
                 use_container_width=True, hide_index=True
             )
 
@@ -298,8 +302,8 @@ with tabs[0]:
             st.error(f"⚠️ **{len(df_inc)} inconsistências encontradas**")
 
             c1, c2, c3 = st.columns(3)
-            c1.metric("❌ Ausentes no Novo Sistema",   tipos.get("❌ Ausente no Novo Sistema", 0))
-            c2.metric("⚠️ Ausentes no Sistema Antigo", tipos.get("⚠️ Ausente no Sistema Antigo", 0))
+            c1.metric("❌ Ausentes no Humana",   tipos.get("❌ Ausente no Humana", 0))
+            c2.metric("⚠️ Ausentes no Pega Plantão", tipos.get("⚠️ Ausente no Pega Plantão", 0))
             c3.metric("💰 Divergências de Valor",      tipos.get("💰 Divergência de Valor", 0))
 
             filtro = st.multiselect(
@@ -310,7 +314,7 @@ with tabs[0]:
             df_show = df_inc[df_inc["tipo"].isin(filtro)]
             st.dataframe(
                 df_show[["tipo", "medico", "crm", "data",
-                          "valor_financeiro", "valor_relatorio", "diferenca", "detalhe"]],
+                          "valor_pega_plantao", "valor_humana", "diferenca_humana", "detalhe"]],
                 use_container_width=True, hide_index=True,
             )
 
@@ -358,8 +362,8 @@ with tabs[1]:
                 f"🕒 {reg['data_consulta']} — {reg['total_inconsistencias']} inconsistência(s)"
             ):
                 c1, c2, c3 = st.columns(3)
-                c1.markdown(f"**Sistema Antigo:** `{reg['arquivo_financeiro']}`")
-                c2.markdown(f"**Novo Sistema:** `{reg['arquivo_relatorio']}`")
+                c1.markdown(f"**Pega Plantão:** `{reg['arquivo_financeiro']}`")
+                c2.markdown(f"**Humana:** `{reg['arquivo_relatorio']}`")
                 c3.metric("Inconsistências", reg["total_inconsistencias"])
 
                 if reg.get("resumo_tipos"):
